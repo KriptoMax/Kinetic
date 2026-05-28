@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "386283962216",
+    "project_id": "kinetic-f15af",
+    "storage_bucket": "kinetic-f15af.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:386283962216:android:fb2ce734f7c1d564b8a0dd",
+        "android_client_info": {
+          "package_name": "kz.kripto.studycompose1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdSF-3WvU4SEdE4y5bSnWZ9l4ZWTyMKJs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
