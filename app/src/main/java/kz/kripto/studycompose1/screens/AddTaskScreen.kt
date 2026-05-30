@@ -69,6 +69,12 @@ fun AddTaskScreen(
         if (isEditing && !isDataLoaded) {
             viewModel.getTaskById(taskId!!).collect { data ->
                 if (data != null && !isDataLoaded) {
+                    // ПРОВЕРКА ПРАВ: Только создатель может редактировать
+                    val currentUserId = viewModel.currentUserId
+                    if (data.task.creatorId != currentUserId) {
+                        onBack() // Выкидываем, если не создатель
+                        return@collect
+                    }
 
                     // АНАЛОГ wait(1) ИЗ LUAU: Ждем ровно 1 секунду, пока горит экран загрузки
                     delay(1)

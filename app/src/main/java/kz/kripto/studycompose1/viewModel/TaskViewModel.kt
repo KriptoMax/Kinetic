@@ -21,41 +21,42 @@ import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.database.entities.TaskWithSubTasks
 import kz.kripto.studycompose1.database.dao.TeamDao
 import kz.kripto.studycompose1.database.entities.UserEntity
-
+import kz.kripto.studycompose1.repository.SubTaskRepository
 import kz.kripto.studycompose1.repository.TaskRepository
 
+// Моя ViewModel для работы со списком задач
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaskViewModel(
     private val repository: TaskRepository,
+    private val subTaskRepository: SubTaskRepository,
     private val taskDao: TaskDao,
     private val teamDao: TeamDao,
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
-    // При инициализации можно запустить синхронизацию
     init {
+        // Сразу при создании запускаю синхронизацию с Firebase
         repository.startRealtimeSync()
     }
 
-    // Текущий залогиненный пользователь
+    // Достаю ID текущего пользователя из сессии
     val currentUserId: Long
         get() = sessionManager.getUserId()
 
-    // Идентификатор выбранной команды. Если null -> смотрим личные задачи. Если число -> задачи этой команды
+    // Храню ID выбранной команды (если null — значит смотрю личные задачи)
     val selectedTeamId = MutableStateFlow<Long?>(null)
 
-    // Переменная для хранения текста поиска
+    // Текст поиска для фильтрации задач
     var searchQuery = mutableStateOf("")
         private set
 
-    // Реактивный поток для отслеживания текста поиска внутри Flow
     private val _searchFlow = MutableStateFlow("")
 
-    // --- ДОБАВЛЕНО ДЛЯ ЭКРАНА КОМАНДЫ (TeamTasksScreen) ---
+    // Список задач для экрана команды
     private val _teamTasksState = MutableStateFlow<List<TaskWithProgress>>(emptyList())
     val teamTasksState: StateFlow<List<TaskWithProgress>> = _teamTasksState.asStateFlow()
 
-    // Метод загружает задачи конкретной команды и сразу считает по ним прогресс (для чекбоксов)
+    // Загружаю задачи конкретной команды и считаю прогресс по подзадачам
     fun loadTeamTasks(teamId: Long) {
         viewModelScope.launch {
             taskDao.getTeamTasks(teamId).map { list ->
@@ -74,29 +75,27 @@ class TaskViewModel(
             }
         }
     }
-    // -----------------------------------------------------
 
-    // УМНЫЙ ПОТОК: Автоматически переключает базу данных в зависимости от того, выбрана ли команда
+    // Основной поток задач: автоматически переключается между личными и командными
     val taskListState: StateFlow<List<TaskWithProgress>> = combine(
         selectedTeamId,
         _searchFlow
     ) { teamId, query -> Pair(teamId, query) }
         .flatMapLatest { (teamId, query) ->
-            // Если команда не выбрана — тянем только личные приватные задачи пользователя
             val dbFlow = if (teamId == null) {
                 taskDao.getUserPrivateTasks(currentUserId)
             } else {
-                // Если команда выбрана — тянем задачи этой конкретной команды
                 taskDao.getTeamTasks(teamId)
             }
 
-            // Внутри фильтруем по поисковой строке
+            // Фильтрую по названию, если что-то введено в поиск
             dbFlow.map { list ->
                 if (query.isBlank()) list
                 else list.filter { it.task.title.contains(query, ignoreCase = true) }
             }
         }
         .map { list ->
+            // Маплю данные в объект с процентом выполнения
             list.map { taskWithSubTasks ->
                 val total = taskWithSubTasks.subTasks.size
                 val completed = taskWithSubTasks.subTasks.count { it.isCompleted }
@@ -116,7 +115,7 @@ class TaskViewModel(
             initialValue = emptyList()
         )
 
-    // МОДИФИЦИРОВАННЫЙ МЕТОД СОХРАНЕНИЯ: Теперь принимает teamId напрямую из экрана
+    // Сохраняю новую задачу или обновляю существующую
     fun saveTask(
         title: String,
         subTaskTitles: List<String>,
@@ -129,18 +128,26 @@ class TaskViewModel(
             val finalTeamId = teamId ?: selectedTeamId.value
             
             val task = if (editingTaskId != null && editingTaskId != 0L) {
-                // Пытаемся найти существующую задачу, чтобы сохранить её remoteId
+                // Если редактирую, подтягиваю remoteId из базы
                 val existing = taskDao.getTaskByIdOnce(editingTaskId)
+                
+                // ПРОВЕРКА: Редактировать может только создатель (основатель)
+                if (existing != null && !isOwner(existing.task)) {
+                    return@launch
+                }
+
                 TaskEntity(
                     id = editingTaskId,
-                    remoteId = existing?.task?.remoteId, // ВАЖНО: сохраняем старый ID из Firestore
+                    remoteId = existing?.task?.remoteId,
                     title = title,
                     deadline = deadline,
                     creatorId = currentUserId,
+                    creatorUid = existing?.task?.creatorUid,
                     teamId = finalTeamId,
                     assigneeId = assigneeId
                 )
             } else {
+                // Создаю новую структуру задачи
                 TaskEntity(
                     title = title,
                     deadline = deadline,
@@ -150,24 +157,26 @@ class TaskViewModel(
                 )
             }
             
+            // Отдаю в репозиторий для сохранения локально и в облаке
             repository.saveTask(task, subTaskTitles, editingTaskId)
         }
     }
 
-    fun toggleSubTaskStatus(subTaskId: Long, isCompleted: Boolean) {
+    // Переключаю галочку у подзадачи через специальный репозиторий
+    fun toggleSubTaskStatus(taskId: Long, subTaskId: Long, isCompleted: Boolean) {
         viewModelScope.launch {
-            taskDao.updateSubTaskStatus(subTaskId, isCompleted)
-            // Добавить синхронизацию подзадач в репозиторий при необходимости
+            subTaskRepository.toggleSubTaskStatus(taskId, subTaskId, isCompleted)
         }
     }
 
+    // Инвертирую статус выполнения всей задачи
     fun toggleTaskStatus(task: TaskEntity) {
         viewModelScope.launch {
             repository.toggleTaskStatus(task)
         }
     }
 
-    // Дополнительный хелпер для работы экрана TeamTasksScreen
+    // Метод для явной установки статуса (нужен для экранов команд)
     fun toggleTaskCompletion(task: TaskEntity, isCompleted: Boolean) {
         viewModelScope.launch {
             if (task.isCompleted != isCompleted) {
@@ -176,12 +185,22 @@ class TaskViewModel(
         }
     }
 
+    // Проверяю, я ли создал эту задачу (по глобальному ID)
+    fun isOwner(task: TaskEntity): Boolean {
+        val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        return task.creatorUid == myUid || task.creatorId == currentUserId
+    }
+
+    // Удаляю задачу полностью (только если я владелец)
     fun deleteTask(task: TaskEntity) {
         viewModelScope.launch {
-            repository.deleteTask(task)
+            if (isOwner(task)) {
+                repository.deleteTask(task)
+            }
         }
     }
 
+    // Получаю детали конкретной задачи
     fun getTaskById(taskId: Long): StateFlow<TaskWithSubTasks?> {
         return taskDao.getTaskById(taskId)
             .stateIn(
@@ -191,21 +210,24 @@ class TaskViewModel(
             )
     }
 
-    // Метод для переключения вкладок (Личные задачи / Командные задачи)
+    // Меняю контекст (личные задачи / задачи команды)
     fun changeTeamContext(teamId: Long?) {
         selectedTeamId.value = teamId
     }
 
+    // Обновляю поисковый запрос
     fun onSearchQueryChanged(newQuery: String) {
         searchQuery.value = newQuery
         _searchFlow.value = newQuery
     }
 
+    // Достаю список участников команды
     fun getTeamMembers(teamId: Long): Flow<List<UserEntity>> {
         return teamDao.getTeamMembersEntities(teamId)
     }
 }
 
+// Вспомогательный класс для хранения задачи и её прогресса в процентах
 data class TaskWithProgress(
     val data: TaskWithSubTasks,
     val progress: Int

@@ -113,7 +113,13 @@ fun AppNavigation() {
             val route: TaskDetailRoute = backStackEntry.toRoute()
             TaskDetailScreen(
                 taskId = route.taskId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onEditTask = { taskId ->
+                    navController.navigate(AddTaskRoute(taskId = taskId))
+                },
+                onDeleteTask = {
+                    navController.popBackStack()
+                }
             )
         }
     }

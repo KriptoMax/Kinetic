@@ -17,6 +17,7 @@ import kz.kripto.studycompose1.components.MainNavbar
 import kz.kripto.studycompose1.components.TaskCard
 import kz.kripto.studycompose1.components.TeamCard
 import kz.kripto.studycompose1.database.data.SessionManager
+import kz.kripto.studycompose1.database.entities.TaskEntity
 import kz.kripto.studycompose1.database.entities.TeamEntity
 import kz.kripto.studycompose1.ui.theme.StudyCompose1Theme
 import kz.kripto.studycompose1.viewModel.TaskViewModel
@@ -60,12 +61,14 @@ fun TeamDetailsScreen(
         team = team,
         tasks = tasks,
         isOwner = { t -> teamViewModel.isOwner(t) },
+        isTaskOwner = { t -> taskViewModel.isOwner(t) }, // Добавил проверку владельца задачи
         onBackClick = onBackClick,
         onLogout = onNavigateToAuth,
         onAddTask = { onAddTask(teamId) },
         onTaskClick = onTaskClick,
         onEditTask = onEditTask,
         onDeleteTask = { taskViewModel.deleteTask(it.data.task) },
+        currentUserId = sessionManager.getUserId(),
         sessionManager = sessionManager,
         onShowMembersClick = { showMembersSheet = true }
     )
@@ -190,12 +193,14 @@ fun TeamDetailsContent(
     team: TeamEntity?,
     tasks: List<TaskWithProgress>,
     isOwner: (TeamEntity) -> Boolean,
+    isTaskOwner: (TaskEntity) -> Boolean,
     onBackClick: () -> Unit,
     onLogout: () -> Unit,
     onAddTask: () -> Unit,
     onTaskClick: (Long) -> Unit,
     onEditTask: (Long) -> Unit,
     onDeleteTask: (TaskWithProgress) -> Unit,
+    currentUserId: Long = -1L,
     sessionManager: SessionManager? = null,
     onShowMembersClick: () -> Unit = {}
 ) {
@@ -216,7 +221,11 @@ fun TeamDetailsContent(
             }
         },
         floatingActionButton = {
-            KineticAddFAB(onClick = onAddTask)
+            team?.let {
+                if (isOwner(it)) {
+                    KineticAddFAB(onClick = onAddTask)
+                }
+            }
         }
     ) { paddingValues ->
         Box(
@@ -272,7 +281,9 @@ fun TeamDetailsContent(
                             taskWithProgress = taskWithProgress,
                             onTaskClick = { onTaskClick(taskWithProgress.data.task.id) },
                             onEditClick = { onEditTask(taskWithProgress.data.task.id) },
-                            onDeleteClick = { onDeleteTask(taskWithProgress) }
+                            onDeleteClick = { onDeleteTask(taskWithProgress) },
+                            // Теперь проверяем через глобальный UID основателя
+                            isOwner = isTaskOwner(taskWithProgress.data.task) || (team?.let { isOwner(it) } ?: false)
                         )
                     }
                 }
@@ -318,6 +329,7 @@ fun TeamDetailPreview() {
                 team = TeamEntity(id = 1, teamName = "Моя Команда", creatorId = 1, inviteCode = "ABC-123"),
                 tasks = emptyList(),
                 isOwner = { true },
+                isTaskOwner = { true },
                 onBackClick = {},
                 onLogout = {},
                 onAddTask = {},

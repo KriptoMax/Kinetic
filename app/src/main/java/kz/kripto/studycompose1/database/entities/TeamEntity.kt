@@ -8,6 +8,7 @@ data class TeamEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val teamName: String,
     val inviteCode: String,      // Код команды
-    val creatorId: Long,         // ИМЕННО ЭТО ПОЛЕ ИЩЕТ ВЬЮМОДЕЛЬ!
+    val creatorId: Long,         // Локальный ID
+    val creatorUid: String? = null, // Глобальный ID (Firebase UID)
     val isPrivate: Boolean = false
 )

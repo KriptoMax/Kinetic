@@ -18,19 +18,16 @@ import kz.kripto.studycompose1.components.AuthNavbar
 import kz.kripto.studycompose1.components.KineticInput
 import kz.kripto.studycompose1.components.KineticPrimaryButton
 import kz.kripto.studycompose1.components.KineticTextButton
-import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.ui.theme.KineticStyle
 import kz.kripto.studycompose1.viewModel.AuthViewModel
 import org.koin.androidx.compose.koinViewModel
-import org.koin.compose.koinInject // ДОБАВИЛИ ИМПОРТ
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
     onBackClick: () -> Unit, // 1. ДОБАВИЛИ КЛЮЧЕВОЙ КОЛБЕК ДЛЯ НАВИГАЦИИ НАЗАД
-    viewModel: AuthViewModel = koinViewModel(),
-    sessionManager: SessionManager = koinInject()
+    viewModel: AuthViewModel = koinViewModel()
 ) {
     var isRegisterMode by remember { mutableStateOf(false) }
     val error by viewModel.authError
@@ -38,10 +35,6 @@ fun AuthScreen(
     LaunchedEffect(key1 = viewModel.authSuccess) {
         viewModel.authSuccess.collect { success: Boolean ->
             if (success) {
-                val enteredUsername = viewModel.username.value
-                if (enteredUsername.isNotBlank()) {
-                    sessionManager.saveUsername(enteredUsername)
-                }
                 onAuthSuccess()
             }
         }
@@ -65,10 +58,19 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             KineticInput(
-                value = viewModel.username.value,
-                onValueChange = { viewModel.username.value = it },
-                label = "Логин"
+                value = viewModel.email.value,
+                onValueChange = { viewModel.email.value = it },
+                label = "Email"
             )
+
+            if (isRegisterMode) {
+                Spacer(modifier = Modifier.height(16.dp))
+                KineticInput(
+                    value = viewModel.username.value,
+                    onValueChange = { viewModel.username.value = it },
+                    label = "Логин"
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 

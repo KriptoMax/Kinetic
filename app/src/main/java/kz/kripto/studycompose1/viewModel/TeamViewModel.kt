@@ -12,15 +12,24 @@ import kotlinx.coroutines.launch
 import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.database.dao.TeamDao
 import kz.kripto.studycompose1.database.entities.TeamEntity
+import kz.kripto.studycompose1.repository.TeamRepository
 
+// Моя ViewModel для управления командами
 class TeamViewModel(
     private val teamDao: TeamDao,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val teamRepository: TeamRepository
 ) : ViewModel() {
+
+    init {
+        // Подключаю синхронизацию команд из облака
+        teamRepository.startRealtimeSync()
+    }
 
     val currentUserId: Long
         get() = sessionManager.getUserId()
 
+    // Наблюдаю за списком команд, в которых я состою
     val teamsState: StateFlow<List<TeamEntity>> = teamDao.getTeamsForUser(currentUserId)
         .stateIn(
             scope = viewModelScope,
@@ -28,29 +37,37 @@ class TeamViewModel(
             initialValue = emptyList()
         )
 
+    // Временные поля для форм создания/вступления
     var teamNameInput = mutableStateOf("")
     var inviteCodeInput = mutableStateOf("")
     var isPrivateInput = mutableStateOf(false)
     var teamError = mutableStateOf<String?>(null)
 
+    // Получаю данные о команде по ID
     fun getTeamById(teamId: Long) = teamDao.getTeamById(teamId)
 
+    // Получаю список участников конкретной команды
     fun getTeamMembers(teamId: Long) = teamDao.getTeamMembers(teamId)
 
+    // Проверяю, состою ли я в этой команде
     fun isUserInTeam(teamId: Long): Flow<Boolean> {
         return teamDao.isUserInTeam(teamId, currentUserId)
     }
 
+    // Проверяю, я ли создал эту команду (по глобальному ID)
     fun isOwner(team: TeamEntity): Boolean {
-        return team.creatorId == currentUserId
+        val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        return team.creatorUid == myUid || team.creatorId == currentUserId
     }
 
+    // Заполняю форму данными команды для редактирования
     fun setupEditTeam(team: TeamEntity) {
         teamNameInput.value = team.teamName
         isPrivateInput.value = team.isPrivate
         inviteCodeInput.value = team.inviteCode
     }
 
+    // Создаю новую команду
     fun createTeam(onSuccess: () -> Unit) {
         if (teamNameInput.value.isBlank()) {
             teamError.value = "Введите название команды"
@@ -58,7 +75,7 @@ class TeamViewModel(
         }
         viewModelScope.launch {
             val code = inviteCodeInput.value.ifBlank { null }
-            teamDao.createTeam(
+            teamRepository.createTeam(
                 teamName = teamNameInput.value,
                 inviteCode = code,
                 creatorId = currentUserId,
@@ -69,6 +86,7 @@ class TeamViewModel(
         }
     }
 
+    // Обновляю название или настройки приватности моей команды
     fun updateTeam(teamId: Long, onSuccess: () -> Unit) {
         if (teamNameInput.value.isBlank()) {
             teamError.value = "Введите название команды"
@@ -82,34 +100,44 @@ class TeamViewModel(
                     isPrivate = isPrivateInput.value,
                     inviteCode = inviteCodeInput.value
                 ))
+                // Тут в будущем можно добавить синхронизацию изменений в Firebase
                 clearInputs()
                 onSuccess()
             }
         }
     }
 
+    // Удаляю команду полностью (только если я владелец)
     fun deleteTeam(team: TeamEntity, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             if (isOwner(team)) {
-                teamDao.deleteTeam(team)
+                teamRepository.deleteTeam(team)
                 onSuccess()
             }
         }
     }
 
+    // Выхожу из команды или удаляю её, если я владелец
     fun leaveTeam(teamId: Long, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            teamDao.removeMember(teamId, currentUserId)
+            val team = teamDao.getTeamByIdOnce(teamId)
+            if (team != null && isOwner(team)) {
+                teamRepository.deleteTeam(team)
+            } else {
+                teamDao.removeMember(teamId, currentUserId)
+            }
             onSuccess()
         }
     }
 
+    // Выгоняю участника из моей команды по его логину
     fun removeMemberByUsername(teamId: Long, username: String) {
         viewModelScope.launch {
             teamDao.removeMemberByUsername(teamId, username)
         }
     }
 
+    // Просто вступаю в публичную команду (без кода)
     fun joinPublicTeam(teamId: Long, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             teamDao.joinTeamById(teamId, currentUserId)
@@ -117,6 +145,7 @@ class TeamViewModel(
         }
     }
 
+    // Вступаю в закрытую команду по пригласительному коду
     fun joinTeam(onSuccess: () -> Unit) {
         val code = inviteCodeInput.value
         if (code.isBlank()) {
@@ -124,7 +153,7 @@ class TeamViewModel(
             return
         }
         viewModelScope.launch {
-            val success = teamDao.joinTeamByCode(code, currentUserId)
+            val success = teamRepository.joinTeamByCode(code, currentUserId)
             if (success) {
                 clearInputs()
                 onSuccess()
@@ -134,6 +163,7 @@ class TeamViewModel(
         }
     }
 
+    // Очищаю все поля ввода
     private fun clearInputs() {
         teamNameInput.value = ""
         inviteCodeInput.value = ""

@@ -31,15 +31,31 @@ import java.util.*
 fun TaskDetailScreen(
     taskId: Long,
     onBack: () -> Unit,
+    onEditTask: (Long) -> Unit = {},
+    onDeleteTask: () -> Unit = {},
     viewModel: TaskViewModel = koinViewModel()
 ) {
     val taskWithSubTasks by viewModel.getTaskById(taskId).collectAsState(initial = null)
+    val currentUserId = viewModel.currentUserId
 
     val strokeColor = MaterialTheme.colorScheme.onPrimary
     val cardBgColor = MaterialTheme.colorScheme.primary
 
     Scaffold(
-        topBar = { TaskDetailNavbar(onBack = onBack) }
+        topBar = {
+            TaskDetailNavbar(
+                // Проверяем владельца по глобальному UID
+                isOwner = taskWithSubTasks?.task?.let { viewModel.isOwner(it) } ?: false,
+                onBack = onBack,
+                onEdit = { onEditTask(taskId) },
+                onDelete = {
+                    taskWithSubTasks?.task?.let {
+                        viewModel.deleteTask(it)
+                        onDeleteTask()
+                    }
+                }
+            )
+        }
     ) { innerPadding ->
         taskWithSubTasks?.let { currentData ->
             val mainTask = currentData.task
@@ -107,7 +123,7 @@ fun TaskDetailScreen(
                             subTask = subTask,
                             strokeColor = MaterialTheme.colorScheme.onBackground,
                             onCheckedChange = { isChecked ->
-                                viewModel.toggleSubTaskStatus(subTask.id, isCompleted = isChecked)
+                                viewModel.toggleSubTaskStatus(taskId, subTask.id, isCompleted = isChecked)
                             }
                         )
                     }

@@ -146,7 +146,12 @@ fun AuthNavbar(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskDetailNavbar(onBack: () -> Unit) {
+fun TaskDetailNavbar(
+    isOwner: Boolean = false,
+    onBack: () -> Unit,
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {}
+) {
     TopAppBar(
         title = { Text("Детали задачи", style = KineticStyle.minecraftStyle) },
         navigationIcon = {
@@ -175,7 +180,7 @@ fun CreateTeamNavbar(onBack: () -> Unit) {
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_bar),
+                    painter = painterResource(id = R.drawable.ic_arrowleft),
                     contentDescription = "Назад",
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.onPrimary

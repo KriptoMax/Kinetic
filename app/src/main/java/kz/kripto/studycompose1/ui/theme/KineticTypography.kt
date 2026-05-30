@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import kz.kripto.studycompose1.R
 
+
 val MinecraftFontFamily = FontFamily(
     Font(resId = R.font.minecraft, weight = FontWeight.Normal)
 )
@@ -19,7 +20,7 @@ val RubikFontFamily = FontFamily(
     Font(resId = R.font.rubik_regular, weight = FontWeight.Normal)
 )
 
-object KineticStyle{
+object KineticStyle {
     val minecraftStyle = TextStyle(
         fontFamily = MinecraftFontFamily,
         fontSize = 16.sp,

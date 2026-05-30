@@ -6,7 +6,10 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.viewModel.AuthViewModel
 import kz.kripto.studycompose1.database.KineticDatabase
+import kz.kripto.studycompose1.repository.SubTaskRepository
 import kz.kripto.studycompose1.repository.TaskRepository
+import kz.kripto.studycompose1.repository.TeamRepository
+import kz.kripto.studycompose1.repository.UserRepository
 import kz.kripto.studycompose1.viewModel.TaskViewModel
 import kz.kripto.studycompose1.viewModel.TeamViewModel // <- ДОБАВИЛИ ИМПОРТ
 import org.koin.android.ext.koin.androidContext
@@ -39,12 +42,15 @@ val appModule = module {
     single { FirebaseAuth.getInstance() }
 
     // 5. Repository
-    single { TaskRepository(get(), get(), get()) }
+    single { TaskRepository(get(), get(), get(), get()) }
+    single { TeamRepository(get(), get(), get()) }
+    single { UserRepository(get(), get(), get()) }
+    single { SubTaskRepository(get(), get(), get(), get()) }
 
     // 6. Регистрация ViewModel
-    viewModel { TaskViewModel(repository = get(), taskDao = get(), teamDao = get(), sessionManager = get()) }
-    viewModel { AuthViewModel(userDao = get(), sessionManager = get(), auth = get()) }
-    viewModel { TeamViewModel(teamDao = get(), sessionManager = get<SessionManager>()) }
+    viewModel { TaskViewModel(repository = get(), subTaskRepository = get(), taskDao = get(), teamDao = get(), sessionManager = get()) }
+    viewModel { AuthViewModel(userDao = get(), sessionManager = get(), auth = get(), userRepository = get()) }
+    viewModel { TeamViewModel(teamDao = get(), sessionManager = get(), teamRepository = get()) }
     // Если твоя TeamViewModel принимает что-то еще (например, taskDao),
     // Koin сам разберется, главное просто дописать еще один get(), вот так: TeamViewModel(get(), get())
 }

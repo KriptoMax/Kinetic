@@ -83,6 +83,9 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE id = :teamId LIMIT 1")
     fun getTeamById(teamId: Long): Flow<TeamEntity?>
 
+    @Query("SELECT * FROM teams WHERE id = :teamId LIMIT 1")
+    suspend fun getTeamByIdOnce(teamId: Long): TeamEntity?
+
     @Query("""
         SELECT DISTINCT teams.* FROM teams 
         LEFT JOIN team_members ON teams.id = team_members.teamId 

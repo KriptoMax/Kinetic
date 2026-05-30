@@ -80,6 +80,9 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
 
+    // WorkManager (Фоновые задачи)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
     //Внедрение Firebase
     implementation(platform("com.google.firebase:firebase-bom:33.1.0")) // Платформа управления версиями
     implementation("com.google.firebase:firebase-auth-ktx")           // Аутентификация

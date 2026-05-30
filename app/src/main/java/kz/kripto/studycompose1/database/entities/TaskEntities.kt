@@ -17,7 +17,8 @@ data class TaskEntity(
     val deadline: Long? = null,
 
     // МОДИФИКАЦИЯ: Добавляем поля для связи
-    val creatorId: Long,     // ID пользователя, который создал задачу
+    val creatorId: Long,     // Локальный ID пользователя
+    val creatorUid: String? = null, // ГЛОБАЛЬНЫЙ ID основателя (Firebase UID)
     val teamId: Long? = null, // null -> приватная задача, Long-номер -> задача команды
     val assigneeId: Long? = null // ID пользователя, назначенного на задачу
 )

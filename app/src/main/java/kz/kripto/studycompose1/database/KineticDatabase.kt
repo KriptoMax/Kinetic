@@ -20,7 +20,7 @@ import kz.kripto.studycompose1.database.entities.UserEntity
         TeamEntity::class,       // Добавили
         TeamMemberEntity::class  // Добавили
     ],
-    version = 4, // Увеличили версию, так как добавили поле firebaseUid в UserEntity
+    version = 7, // Увеличили версию, так как добавили поле creatorUid в Team и Task
     exportSchema = false
 )
 abstract class KineticDatabase : RoomDatabase() {

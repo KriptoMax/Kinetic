@@ -26,6 +26,7 @@ fun TaskCard(
     onTaskClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    isOwner: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -138,20 +139,28 @@ fun TaskCard(
                             onTaskClick()
                         }
                     )
-                    DropdownMenuItem(
-                        text = { Text("Редактировать", style = KineticStyle.rubikNormalStyle) },
-                        onClick = {
-                            menuExpanded = false
-                            onEditClick()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Удалить группу задач", style = KineticStyle.rubikNormalStyle, color = Color.Red) },
-                        onClick = {
-                            menuExpanded = false
-                            onDeleteClick()
-                        }
-                    )
+                    if (isOwner) {
+                        DropdownMenuItem(
+                            text = { Text("Редактировать", style = KineticStyle.rubikNormalStyle) },
+                            onClick = {
+                                menuExpanded = false
+                                onEditClick()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Удалить группу задач",
+                                    style = KineticStyle.rubikNormalStyle,
+                                    color = Color.Red
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onDeleteClick()
+                            }
+                        )
+                    }
                 }
             }
         }
