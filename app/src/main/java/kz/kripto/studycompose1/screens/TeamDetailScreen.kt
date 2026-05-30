@@ -61,7 +61,7 @@ fun TeamDetailsScreen(
         team = team,
         tasks = tasks,
         isOwner = { t -> teamViewModel.isOwner(t) },
-        isTaskOwner = { t -> taskViewModel.isOwner(t) }, // Добавил проверку владельца задачи
+        isTaskOwner = { t -> taskViewModel.isOwner(t) },
         onBackClick = onBackClick,
         onLogout = onNavigateToAuth,
         onAddTask = { onAddTask(teamId) },

@@ -55,7 +55,6 @@ fun AppNavigation() {
                 onTeamClick = { teamId -> navController.navigate(TeamTasksRoute(teamId = teamId)) },
                 onNavigateToEditTeam = { teamId -> navController.navigate(EditTeamRoute(teamId = teamId)) },
                 onNavigateToAuth = {
-                    // ИСПРАВЛЕНО: Просто переходим на экран авторизации, НЕ удаляя Главный экран из стека
                     navController.navigate(AuthRoute)
                 }
             )

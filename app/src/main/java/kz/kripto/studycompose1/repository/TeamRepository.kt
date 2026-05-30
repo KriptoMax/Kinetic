@@ -10,6 +10,7 @@ import com.google.firebase.firestore.DocumentChange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Collections
@@ -90,8 +91,9 @@ class TeamRepository(
     // Создаю новую команду отовсюду: и у себя в телефоне, и в облаке
     suspend fun createTeam(teamName: String, inviteCode: String?, creatorId: Long, isPrivate: Boolean) {
         val finalCode = inviteCode ?: "KNT-${(100000..999999).random()}"
-        val uid = auth.currentUser?.uid // Получаю мой текущий глобальный ID
-        
+        val uid = auth.currentUser?.uid
+        val username = teamDao.getTeamMembers(0).first().firstOrNull() ?: "Owner" // Просто берем имя текущего
+
         updatingInviteCodes.add(finalCode)
 
         val localId = teamDao.insertTeam(
@@ -99,7 +101,7 @@ class TeamRepository(
                 teamName = teamName, 
                 inviteCode = finalCode, 
                 creatorId = creatorId, 
-                creatorUid = uid, // Записываю свой UID
+                creatorUid = uid,
                 isPrivate = isPrivate
             )
         )
@@ -109,12 +111,19 @@ class TeamRepository(
             "teamName" to teamName,
             "inviteCode" to finalCode,
             "creatorId" to creatorId,
-            "creatorUid" to uid, // Отправляю UID в облако
+            "creatorUid" to uid,
             "isPrivate" to isPrivate
         )
         
         try {
+            // Создаем команду
             firestore.collection("teams").document(finalCode).set(teamMap).await()
+            // Добавляем создателя в список участников в облаке
+            if (uid != null) {
+                val memberMap = hashMapOf("uid" to uid, "role" to "admin")
+                firestore.collection("teams").document(finalCode)
+                    .collection("members").document(uid).set(memberMap).await()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             updatingInviteCodes.remove(finalCode)
@@ -123,6 +132,7 @@ class TeamRepository(
 
     // Метод для вступления в команду по её секретному коду
     suspend fun joinTeamByCode(inviteCode: String, userId: Long): Boolean {
+        val uid = auth.currentUser?.uid ?: return false
         return try {
             val doc = firestore.collection("teams").document(inviteCode).get().await()
             if (doc.exists()) {
@@ -131,6 +141,11 @@ class TeamRepository(
                 
                 val teamId = teamDao.getTeamByCode(inviteCode)?.id ?: return false
                 teamDao.insertMember(TeamMemberEntity(userId = userId, teamId = teamId))
+
+                // Добавляем пользователя в список участников в облаке Firestore
+                val memberMap = hashMapOf("uid" to uid, "role" to "member")
+                firestore.collection("teams").document(inviteCode)
+                    .collection("members").document(uid).set(memberMap).await()
                 true
             } else {
                 false
