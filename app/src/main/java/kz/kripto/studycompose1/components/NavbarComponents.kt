@@ -70,19 +70,6 @@ fun MainNavbar(
                     enabled = false
                 )
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-
-                DropdownMenuItem(
-                    text = { Text(text = "Настройки", style = KineticStyle.rubikNormalStyle) },
-                    onClick = { expanded = false }
-                )
-                DropdownMenuItem(
-                    text = { Text(text = "О приложении", style = KineticStyle.rubikNormalStyle) },
-                    onClick = { expanded = false }
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-
                 DropdownMenuItem(
                     text = {
                         Text(
