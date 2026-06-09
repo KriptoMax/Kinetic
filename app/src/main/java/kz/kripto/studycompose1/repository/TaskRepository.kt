@@ -15,7 +15,11 @@ import kz.kripto.studycompose1.database.entities.SubTaskEntity
 import kz.kripto.studycompose1.database.entities.TaskEntity
 import java.util.Collections
 
-// Мой репозиторий для управления задачами: связывает Room и Firestore
+/**
+ * Мой репозиторий для управления задачами. 
+ * Это "мост" между локальной базой Room и облаком Firestore.
+ * Он следит, чтобы задачи на телефоне и в сети были одинаковыми.
+ */
 class TaskRepository(
     private val taskDao: TaskDao,
     private val teamDao: TeamDao,
@@ -23,43 +27,54 @@ class TaskRepository(
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth,
 ) {
+    // Область для запуска фоновых задач (чтобы не тормозить экран)
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Список активных "ушей" (слушателей), которые следят за изменениями в Firebase
     private val activeListeners = mutableListOf<ListenerRegistration>()
     
-    // Храню список ID задач, которые сейчас обновляются, чтобы не ловить "эхо" от облака
+    // Сет для блокировки "эха": когда мы сами меняем задачу, облако шлет нам это же изменение обратно.
+    // Мы записываем ID сюда, чтобы игнорировать такие повторы.
     val updatingRemoteIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf<String>())
 
     init {
-        // Слежу за входом/выходом из аккаунта
+        // Как только статус авторизации меняется (вошли/вышли), перенастраиваем синхронизацию
         auth.addAuthStateListener {
             startRealtimeSync()
         }
     }
 
+    // Глобальный ID текущего пользователя из Firebase
     private val currentUid: String?
         get() = auth.currentUser?.uid
 
-    // Запускаю прослушивание изменений в Firebase в реальном времени
+    /**
+     * Запускаю слежку за задачами в реальном времени.
+     * Слушаю и личные задачи, и задачи команд.
+     */
     fun startRealtimeSync() {
         val uid = currentUid
-        activeListeners.forEach { it.remove() }
+        activeListeners.forEach { it.remove() } // Убираю старые слушатели
         activeListeners.clear()
         
         if (uid == null) return
 
-        // Подписываюсь на личные задачи
+        // Подписываюсь на личные задачи пользователя
         val personalListener = firestore.collection("users")
             .document(uid)
             .collection("tasks")
             .addSnapshotListener { snapshots, e -> handleTaskSnapshots(snapshots, e) }
         activeListeners.add(personalListener)
 
-        // Подписываюсь на командные задачи
+        // Подписываюсь на все задачи всех команд
         val teamTasksListener = firestore.collection("teams_tasks")
             .addSnapshotListener { snapshots, e -> handleTaskSnapshots(snapshots, e) }
         activeListeners.add(teamTasksListener)
     }
 
+    /**
+     * Обрабатываю "пакеты" изменений из облака.
+     * Если задача добавлена, изменена или удалена в Firestore — повторяю это в Room.
+     */
     private fun handleTaskSnapshots(snapshots: com.google.firebase.firestore.QuerySnapshot?, e: com.google.firebase.firestore.FirebaseFirestoreException?) {
         if (e != null) return
 
@@ -68,6 +83,7 @@ class TaskRepository(
             val remoteId = doc.id
             val data = doc.data
 
+            // Проверка: если это мы сами только что отправили это изменение, пропускаем его
             if (updatingRemoteIds.contains(remoteId)) {
                 if (doc.metadata.hasPendingWrites().not()) {
                     updatingRemoteIds.remove(remoteId)
@@ -78,9 +94,11 @@ class TaskRepository(
             repositoryScope.launch {
                 when (change.type) {
                     DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
+                        // Если задача появилась или обновилась в сети — качаем её в телефон
                         syncTaskWithSubTasksToLocal(remoteId, data)
                     }
                     DocumentChange.Type.REMOVED -> {
+                        // Если кто-то удалил задачу в облаке — стираем её и у себя
                         taskDao.getTaskByRemoteId(remoteId)?.let { taskDao.deleteTask(it) }
                     }
                 }
@@ -88,15 +106,18 @@ class TaskRepository(
         }
     }
 
-    // Метод для записи данных из облака в мою локальную базу
+    /**
+     * Переливаю данные из Map (формат Firestore) в TaskEntity (формат Room).
+     * Здесь же подтягиваю локальные ID для команд и исполнителей.
+     */
     private suspend fun syncTaskWithSubTasksToLocal(remoteId: String, data: Map<String, Any>) {
         val existingTask = taskDao.getTaskByRemoteId(remoteId)
         
-        // Связываем с командой по коду, так как локальные ID могут не совпадать
+        // Ищем локальный ID команды по её коду приглашения
         val teamInviteCode = data["teamInviteCode"] as? String
         val localTeamId = teamInviteCode?.let { teamDao.getTeamByCode(it)?.id }
 
-        // Пытаемся найти или скачать профиль исполнителя
+        // Пытаемся найти исполнителя по его UID (если не знаем — скачиваем профиль)
         val assigneeUid = data["assigneeUid"] as? String
         val localAssigneeId = assigneeUid?.let { userRepository.fetchAndSaveUserProfile(it) }
 
@@ -108,12 +129,13 @@ class TaskRepository(
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
             deadline = (data["deadline"] as? Number)?.toLong(),
             creatorId = (data["creatorId"] as? Number)?.toLong() ?: 1L,
-            creatorUid = data["creatorUid"] as? String, // Храню глобальный UID создателя
+            creatorUid = data["creatorUid"] as? String,
             teamId = localTeamId, 
             assigneeId = if (localAssigneeId != -1L) localAssigneeId else null,
             assigneeUid = assigneeUid
         )
         
+        // Превращаем список подзадач из облака в объекты для базы
         val subTasksRaw = data["subTasks"] as? List<*> ?: emptyList<Any>()
         val subTaskEntities = subTasksRaw.mapNotNull { item ->
             when (item) {
@@ -123,16 +145,19 @@ class TaskRepository(
             }
         }
 
-        // ИСПОЛЬЗУЕМ ТРАНЗАКЦИЮ: Чтобы задача и подзадачи обновлялись одновременно (без мерцания)
+        // Записываем всё в базу одним махом (через транзакцию), чтобы не моргал экран
         taskDao.syncTaskAndSubTasks(task, subTaskEntities)
     }
 
-    // Сохраняю задачу: сначала в телефон, потом в Firebase
+    /**
+     * Сохраняю задачу: сначала записываю в телефон (Room), 
+     * а потом отправляю "копию" в облако (Firestore).
+     */
     suspend fun saveTask(task: TaskEntity, subTaskTitles: List<String>, editingTaskId: Long? = null) {
         val uid = currentUid
         val remoteId = task.remoteId ?: java.util.UUID.randomUUID().toString()
         
-        // РАЗРЕШАЕМ ГЛОБАЛЬНЫЙ UID ИСПОЛНИТЕЛЯ
+        // Выясняем UID исполнителя, чтобы в облаке было понятно, кто назначен
         val assigneeUid = if (task.assigneeId != null) {
             userRepository.getUserById(task.assigneeId)?.firebaseUid
         } else {
@@ -146,6 +171,7 @@ class TaskRepository(
         )
 
         if (editingTaskId != null && editingTaskId != 0L) {
+            // Обновляем существующую
             val updatedSubTasks = subTaskTitles.map { SubTaskEntity(parentTaskId = editingTaskId, title = it, isCompleted = false) }
             taskDao.updateTaskWithSubTasks(taskToSave, updatedSubTasks)
             if (uid != null) {
@@ -153,6 +179,7 @@ class TaskRepository(
                 syncTaskWithSubTasksToFirestore(taskToSave, updatedSubTasks, remoteId)
             }
         } else {
+            // Создаем абсолютно новую
             val parentId = taskDao.insertTask(taskToSave)
             val newSubTasks = subTaskTitles.map { SubTaskEntity(parentTaskId = parentId, title = it, isCompleted = false) }
             taskDao.insertSubTasks(newSubTasks)
@@ -163,7 +190,10 @@ class TaskRepository(
         }
     }
 
-    // Отправляю данные в нужную коллекцию Firebase
+    /**
+     * Отправляю данные задачи и подзадач в Firebase.
+     * Если задача личная — летит в папку пользователя, если командная — в общую папку команд.
+     */
     private suspend fun syncTaskWithSubTasksToFirestore(task: TaskEntity, subTasks: List<SubTaskEntity>, docId: String) {
         val uid = currentUid ?: return
         val teamInviteCode = task.teamId?.let { teamDao.getTeamByIdOnce(it)?.inviteCode }
@@ -191,7 +221,9 @@ class TaskRepository(
         }
     }
 
-    // Удаляю задачу отовсюду
+    /**
+     * Полное удаление задачи: стираю и из телефона, и из облака.
+     */
     suspend fun deleteTask(task: TaskEntity) {
         val remoteId = task.remoteId
         remoteId?.let { updatingRemoteIds.add(it) }
@@ -208,7 +240,9 @@ class TaskRepository(
         }
     }
 
-    // Меняю статус готовности задачи (чекбокс)
+    /**
+     * Переключаю статус "Выполнено" у всей задачи.
+     */
     suspend fun toggleTaskStatus(task: TaskEntity) {
         val remoteId = task.remoteId
         remoteId?.let { updatingRemoteIds.add(it) }

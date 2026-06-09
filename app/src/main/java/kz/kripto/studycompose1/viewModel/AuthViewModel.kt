@@ -13,7 +13,10 @@ import kz.kripto.studycompose1.database.dao.UserDao
 import kz.kripto.studycompose1.database.entities.UserEntity
 import kz.kripto.studycompose1.repository.UserRepository
 
-// Моя ViewModel для авторизации и регистрации через Firebase
+/**
+ * Моя ViewModel для авторизации и регистрации.
+ * Она "дирижирует" процессом входа: общается с Firebase и сохраняет данные в телефон.
+ */
 class AuthViewModel(
     private val userDao: UserDao,
     private val sessionManager: SessionManager,
@@ -21,19 +24,22 @@ class AuthViewModel(
     private val userRepository: UserRepository
 ) : ViewModel() {
 
-    // Поля ввода для формы
+    // Поля ввода для формы (двусторонняя связь с экраном)
     var username = mutableStateOf("")
     var email = mutableStateOf("")
     var password = mutableStateOf("")
 
-    // Текст ошибки, если что-то пошло не так
+    // Сюда пишу текст ошибки, если что-то пошло не так (например, пароль короткий)
     var authError = mutableStateOf<String?>(null)
 
-    // Поток для уведомления экрана об успешном входе
+    // Специальный канал, чтобы сказать экрану: "Всё ок, можно переходить на главную!"
     private val _authSuccess = MutableSharedFlow<Boolean>()
     val authSuccess = _authSuccess.asSharedFlow()
 
-    // Регистрация нового пользователя
+    /**
+     * Создаю новый аккаунт. 
+     * Процесс: Проверка имени -> Регистрация в Firebase -> Сохранение в Room -> Сохранение в Firestore.
+     */
     fun register() {
         val cleanUsername = username.value.trim()
         val cleanEmail = email.value.trim()
@@ -45,13 +51,13 @@ class AuthViewModel(
         }
         viewModelScope.launch {
             try {
-                // 1. Проверяю в облаке, свободен ли логин
+                // 1. Проверяю в облаке, не занял ли кто-то это имя раньше нас
                 if (userRepository.isUsernameTaken(cleanUsername)) {
                     authError.value = "Это имя пользователя уже занято"
                     return@launch
                 }
 
-                // 2. Регистрирую в Firebase Auth (по почте и паролю)
+                // 2. Регистрирую почту и пароль в Firebase Auth
                 val result = auth.createUserWithEmailAndPassword(cleanEmail, cleanPassword).await()
                 val firebaseUser = result.user
                 
@@ -62,13 +68,13 @@ class AuthViewModel(
                         passwordHash = cleanPassword,
                         firebaseUid = firebaseUser.uid
                     )
-                    // 3. Сохраняю в локальную базу Room
+                    // 3. Записываю нового пользователя в локальную базу телефона
                     val newUserId = userDao.registerUser(newUser)
                     
-                    // 4. Сохраняю расширенный профиль в Firestore
+                    // 4. Отправляю профиль в Firestore, чтобы другие видели наш логин
                     userRepository.saveUserToFirestore(newUser.copy(id = newUserId))
                     
-                    // 5. Запоминаю сессию локально
+                    // 5. Сохраняю сессию, чтобы не логиниться при каждом запуске
                     sessionManager.saveUserId(newUserId)
                     sessionManager.saveUsername(cleanUsername)
                     _authSuccess.emit(true)
@@ -81,7 +87,10 @@ class AuthViewModel(
         }
     }
 
-    // Вход в существующий аккаунт
+    /**
+     * Вход в уже созданный аккаунт.
+     * Процесс: Firebase Login -> Синхронизация профиля -> Сохранение сессии.
+     */
     fun login() {
         val cleanEmail = email.value.trim()
         val cleanPassword = password.value.trim()
@@ -92,10 +101,10 @@ class AuthViewModel(
         }
         viewModelScope.launch {
             try {
-                // 1. Пытаюсь войти через Firebase
+                // 1. Спрашиваю у Firebase, верны ли почта и пароль
                 auth.signInWithEmailAndPassword(cleanEmail, cleanPassword).await()
                 
-                // 2. Если вошел, скачиваю профиль из облака в телефон
+                // 2. Если пустили — скачиваю данные профиля (логин и т.д.) из облака в телефон
                 val userId = userRepository.syncUserAfterLogin()
                 
                 if (userId != -1L) {

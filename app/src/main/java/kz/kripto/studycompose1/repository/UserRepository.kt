@@ -6,11 +6,19 @@ import kotlinx.coroutines.tasks.await
 import kz.kripto.studycompose1.database.dao.UserDao
 import kz.kripto.studycompose1.database.entities.UserEntity
 
+/**
+ * Репозиторий для работы с профилями пользователей.
+ * Сохраняет данные в Firebase Firestore, чтобы другие могли видеть твой логин.
+ */
 class UserRepository(
     private val userDao: UserDao,
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth
 ) {
+    /**
+     * Отправляю профиль пользователя в облако.
+     * Это нужно, чтобы при поиске по UID другие видели имя игрока.
+     */
     suspend fun saveUserToFirestore(user: UserEntity) {
         val uid = auth.currentUser?.uid ?: return
         val userMap = hashMapOf(
@@ -25,12 +33,18 @@ class UserRepository(
         }
     }
 
+    /**
+     * После входа скачиваю профиль из облака и сохраняю его в телефон.
+     */
     suspend fun syncUserAfterLogin(): Long {
         val uid = auth.currentUser?.uid ?: return -1L
         return fetchAndSaveUserProfile(uid)
     }
 
-    // Скачивает профиль любого пользователя по UID и сохраняет/обновляет в Room
+    /**
+     * Скачиваю профиль любого пользователя по его UID и сохраняю/обновляю его в Room.
+     * Это важно для списка участников команд и ответственных за задачи.
+     */
     suspend fun fetchAndSaveUserProfile(uid: String): Long {
         var existingUser = userDao.getUserByFirebaseUid(uid)
         
@@ -39,7 +53,7 @@ class UserRepository(
             if (doc.exists()) {
                 val firestoreUsername = doc.getString("username") ?: "User"
                 
-                // Если по UID не нашли, попробуем найти по имени пользователя (для склейки)
+                // Склеиваем профили: если по UID не нашли, ищем по имени
                 if (existingUser == null) {
                     existingUser = userDao.getUserByUsername(firestoreUsername)
                 }
@@ -61,6 +75,9 @@ class UserRepository(
         return existingUser?.id ?: -1L
     }
 
+    /**
+     * Проверяю, не занято ли такое имя пользователя в облаке.
+     */
     suspend fun isUsernameTaken(username: String): Boolean {
         val cleanName = username.trim().lowercase()
         return try {
@@ -71,6 +88,9 @@ class UserRepository(
         }
     }
 
+    /**
+     * Просто достаю пользователя из локальной базы по его номеру (ID).
+     */
     suspend fun getUserById(id: Long): UserEntity? {
         return userDao.getUserById(id)
     }

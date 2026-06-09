@@ -14,6 +14,10 @@ import kz.kripto.studycompose1.database.entities.TeamEntity
 import kz.kripto.studycompose1.database.entities.TeamMemberEntity
 import java.util.Collections
 
+/**
+ * Репозиторий для управления командами.
+ * Здесь происходит вся магия: создание команд, вступление по коду и синхронизация участников.
+ */
 class TeamRepository(
     private val teamDao: TeamDao,
     private val userRepository: UserRepository,
@@ -26,9 +30,14 @@ class TeamRepository(
     private val updatingInviteCodes = Collections.synchronizedSet(mutableSetOf<String>())
 
     init {
+        // Как только вошли в аккаунт — начинаем слушать команды из облака
         auth.addAuthStateListener { startRealtimeSync() }
     }
 
+    /**
+     * Слежу за списком команд в Firebase.
+     * Если команда удалена в облаке — она должна исчезнуть и на телефоне.
+     */
     fun startRealtimeSync() {
         activeListeners.forEach { it.remove() }
         activeListeners.clear()
@@ -44,18 +53,18 @@ class TeamRepository(
                     
                     repositoryScope.launch {
                         if (change.type == DocumentChange.Type.REMOVED) {
-                            // Если команда удалена в облаке, удаляем её локально
+                            // Команду удалили из Firestore — стираем её локально
                             val team = teamDao.getTeamByCode(inviteCode)
                             if (team != null) {
                                 teamDao.deleteTeam(team)
-                                // Также убираем слушатель участников для этой команды
                                 memberListenersMap[inviteCode]?.remove()
                                 memberListenersMap.remove(inviteCode)
                             }
                         } else {
-                            // Если добавлена или изменена
+                            // Команда добавлена или изменилась — обновляем данные в Room
                             val teamData = change.document.data
                             syncTeamToLocal(inviteCode, teamData)
+                            // Начинаем следить за участниками этой команды
                             startMembersSync(inviteCode)
                         }
                     }
@@ -64,6 +73,10 @@ class TeamRepository(
         activeListeners.add(teamListener)
     }
 
+    /**
+     * Слушаю список участников конкретной команды.
+     * Если кто-то вступил или сменил роль — это сразу отобразится у всех.
+     */
     private fun startMembersSync(inviteCode: String) {
         if (memberListenersMap.containsKey(inviteCode)) return
         
@@ -79,11 +92,13 @@ class TeamRepository(
                     repositoryScope.launch {
                         val teamId = teamDao.getTeamByCode(inviteCode)?.id ?: return@launch
                         if (change.type != DocumentChange.Type.REMOVED) {
+                            // Добавляем или обновляем участника
                             val localUserId = userRepository.fetchAndSaveUserProfile(memberUid)
                             if (localUserId != -1L) {
                                 teamDao.insertMember(TeamMemberEntity(userId = localUserId, teamId = teamId, role = role))
                             }
                         } else {
+                            // Кто-то покинул команду — убираем его локально
                             val localUser = userRepository.fetchAndSaveUserProfile(memberUid)
                             if (localUser != -1L) teamDao.removeMember(teamId, localUser)
                         }
@@ -94,12 +109,14 @@ class TeamRepository(
         activeListeners.add(listener)
     }
 
+    /**
+     * Сохраняю данные команды из облака в локальный Room.
+     * Важно: вычисляем локального создателя через UID, чтобы на разных телефонах всё работало четко.
+     */
     private suspend fun syncTeamToLocal(inviteCode: String, data: Map<String, Any>) {
         val existingTeam = teamDao.getTeamByCode(inviteCode)
         val creatorUid = data["creatorUid"] as? String
         
-        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Разрешаем локальный ID создателя через его UID,
-        // чтобы не брать чужой локальный ID с другого телефона.
         val localCreatorId = if (creatorUid != null) {
             userRepository.fetchAndSaveUserProfile(creatorUid)
         } else {
@@ -117,6 +134,10 @@ class TeamRepository(
         teamDao.insertTeam(team)
     }
 
+    /**
+     * Создаю новую команду. Сначала пишу в телефон, потом отправляю в Firebase.
+     * Создатель сразу получает роль "admin".
+     */
     suspend fun createTeam(teamName: String, inviteCode: String?, creatorId: Long, isPrivate: Boolean) {
         val finalCode = inviteCode ?: "KNT-${(100000..999999).random()}"
         val uid = auth.currentUser?.uid
@@ -131,13 +152,15 @@ class TeamRepository(
                 isPrivate = isPrivate
             )
         )
-        // Сразу ставим роль админа локально
+        // Локально сразу ставим роль админа
         teamDao.insertMember(TeamMemberEntity(userId = creatorId, teamId = localId, role = "admin"))
 
         val teamMap = hashMapOf("teamName" to teamName, "inviteCode" to finalCode, "creatorId" to creatorId, "creatorUid" to uid, "isPrivate" to isPrivate)
         try {
+            // Пишем основную информацию о команде
             firestore.collection("teams").document(finalCode).set(teamMap).await()
             if (uid != null) {
+                // Добавляем создателя в подколлекцию участников в облаке
                 firestore.collection("teams").document(finalCode).collection("members").document(uid).set(mapOf("role" to "admin")).await()
             }
         } catch (e: Exception) {
@@ -145,6 +168,10 @@ class TeamRepository(
         }
     }
 
+    /**
+     * Вступаю в команду по коду приглашения.
+     * Качаю данные команды и добавляю себя в её список участников в Firestore.
+     */
     suspend fun joinTeamByCode(inviteCode: String, userId: Long): Boolean {
         val uid = auth.currentUser?.uid ?: return false
         return try {
@@ -154,7 +181,7 @@ class TeamRepository(
                 val teamId = teamDao.getTeamByCode(inviteCode)?.id ?: return false
                 teamDao.insertMember(TeamMemberEntity(userId = userId, teamId = teamId))
                 
-                // Добавляем запись в Firestore (Роль: Участник)
+                // В облаке по умолчанию роль "member"
                 firestore.collection("teams").document(inviteCode)
                     .collection("members").document(uid)
                     .set(mapOf("role" to "member", "joinedAt" to System.currentTimeMillis()))
@@ -164,16 +191,16 @@ class TeamRepository(
         } catch (e: Exception) { false }
     }
 
-    // Вступление в публичную команду через ID
+    /**
+     * Вступление в открытую (публичную) команду.
+     */
     suspend fun joinPublicTeam(teamId: Long, userId: Long) {
         val uid = auth.currentUser?.uid ?: return
         val team = teamDao.getTeamByIdOnce(teamId) ?: return
         val inviteCode = team.inviteCode
 
-        // 1. Локально
         teamDao.insertMember(TeamMemberEntity(userId = userId, teamId = teamId))
 
-        // 2. В облако (Роль: Участник)
         try {
             firestore.collection("teams").document(inviteCode)
                 .collection("members").document(uid)
@@ -184,6 +211,9 @@ class TeamRepository(
         }
     }
 
+    /**
+     * Удаление команды полностью. Стираем везде.
+     */
     suspend fun deleteTeam(team: TeamEntity) {
         val inviteCode = team.inviteCode
         updatingInviteCodes.add(inviteCode)
@@ -195,6 +225,10 @@ class TeamRepository(
         }
     }
 
+    /**
+     * Обновление роли участника (например, назначение мл. админом). 
+     * Только для владельца команды.
+     */
     suspend fun updateMemberRole(inviteCode: String, memberUid: String, newRole: String) {
         try {
             firestore.collection("teams").document(inviteCode)
