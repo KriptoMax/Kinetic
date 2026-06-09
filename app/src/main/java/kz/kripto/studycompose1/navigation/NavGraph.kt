@@ -82,7 +82,7 @@ fun AppNavigation() {
             )
         }
 
-        // 5. ИСПРАВЛЕНО: Теперь тут не белый экран, а экран деталей
+        // 5. Экран внутри команды
         composable<TeamTasksRoute> { backStackEntry ->
             // Извлекаем teamId безопасным Type-Safe способом
             val route: TeamTasksRoute = backStackEntry.toRoute()
