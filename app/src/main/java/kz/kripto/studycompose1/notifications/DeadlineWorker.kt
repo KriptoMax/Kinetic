@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
-import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
 import kz.kripto.studycompose1.R
@@ -22,7 +21,7 @@ class DeadlineWorker(
     private val taskDao: TaskDao by inject()
 
     // Главный метод, который запускается системой в фоне
-    override suspend fun doWork(): ListenableWorker.Result {
+    override suspend fun doWork(): Result {
         // Достаю все задачи из базы
         val allTasks = taskDao.getAllTasksWithSubTasks().first()
         val now = System.currentTimeMillis()
@@ -31,7 +30,7 @@ class DeadlineWorker(
         allTasks.forEach { taskWithSubTasks ->
             val deadline = taskWithSubTasks.task.deadline
             // Проверяю только незавершенные задачи с установленным сроком
-            if (deadline != null && !taskWithSubTasks.task.isCompleted) {
+            if ((deadline != null) && !taskWithSubTasks.task.isCompleted) {
                 val timeUntilDeadline = deadline - now
                 
                 // Если сдача завтра (осталось меньше 24 часов), шлю уведомление
@@ -41,7 +40,7 @@ class DeadlineWorker(
             }
         }
 
-        return ListenableWorker.Result.success()
+        return Result.success()
     }
 
     // Метод для создания и показа самого пуш-уведомления на экране

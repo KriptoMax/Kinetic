@@ -42,8 +42,8 @@ val appModule = module {
     single { FirebaseAuth.getInstance() }
 
     // 5. Repository
-    single { TaskRepository(get(), get(), get(), get()) }
-    single { TeamRepository(get(), get(), get()) }
+    single { TaskRepository(get(), get(), get(), get(), get()) }
+    single { TeamRepository(get(), get(), get(), get()) }
     single { UserRepository(get(), get(), get()) }
     single { SubTaskRepository(get(), get(), get(), get()) }
 

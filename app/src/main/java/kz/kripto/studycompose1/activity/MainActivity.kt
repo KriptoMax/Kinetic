@@ -25,8 +25,8 @@ class MainActivity : ComponentActivity() {
     // Лаунчер для запроса разрешения на уведомления (нужно для новых Android)
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        // Тут можно обработать ответ пользователя
+    ) { _ ->
+        // Реакция на получение/отклонение разрешения
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

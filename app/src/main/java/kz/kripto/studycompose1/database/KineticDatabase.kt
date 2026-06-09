@@ -11,20 +11,19 @@ import kz.kripto.studycompose1.database.entities.TeamEntity
 import kz.kripto.studycompose1.database.entities.TeamMemberEntity
 import kz.kripto.studycompose1.database.entities.UserEntity
 
-// Внутри аннотации @Database добавь новые классы и увеличь версию (version), так как структура изменилась!
 @Database(
     entities = [
         TaskEntity::class,
         SubTaskEntity::class,
-        UserEntity::class,       // Добавили
-        TeamEntity::class,       // Добавили
-        TeamMemberEntity::class  // Добавили
+        UserEntity::class,
+        TeamEntity::class,
+        TeamMemberEntity::class
     ],
-    version = 7, // Увеличили версию, так как добавили поле creatorUid в Team и Task
+    version = 11, // Добавили уникальные индексы для защиты от дубликатов
     exportSchema = false
 )
 abstract class KineticDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
-    abstract fun userDao(): UserDao // Добавили
-    abstract fun teamDao(): TeamDao // Добавили
+    abstract fun userDao(): UserDao
+    abstract fun teamDao(): TeamDao
 }

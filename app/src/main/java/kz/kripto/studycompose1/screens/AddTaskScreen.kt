@@ -16,6 +16,8 @@ import kz.kripto.studycompose1.R
 import kz.kripto.studycompose1.ui.theme.KineticStyle
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kz.kripto.studycompose1.components.AddNavbar
 import kz.kripto.studycompose1.components.KineticInput
@@ -64,35 +66,48 @@ fun AddTaskScreen(
 
     val datePickerState = rememberDatePickerState()
 
-    // 2. СЮДА СТАВИМ delay(1000): Асинхронный блок загрузки данных из Room
+    // 2. Асинхронный блок загрузки данных
     LaunchedEffect(taskId) {
         if (isEditing && !isDataLoaded) {
-            viewModel.getTaskById(taskId!!).collect { data ->
-                if (data != null && !isDataLoaded) {
-                    // ПРОВЕРКА ПРАВ: Только создатель может редактировать
-                    val currentUserId = viewModel.currentUserId
-                    if (data.task.creatorId != currentUserId) {
-                        onBack() // Выкидываем, если не создатель
-                        return@collect
-                    }
-
-                    // АНАЛОГ wait(1) ИЗ LUAU: Ждем ровно 1 секунду, пока горит экран загрузки
-                    delay(1)
-
-                    // Только ПОСЛЕ задержки раскладываем данные по стейтам
-                    taskTitle = data.task.title
-                    selectedDateMillis = data.task.deadline
-                    selectedAssigneeId = data.task.assigneeId
-                    subTasks.clear()
-                    subTasks.addAll(data.subTasks.map { it.title })
-
-                    datePickerState.selectedDateMillis = data.task.deadline
-
-                    // Выключаем загрузку и фиксируем, что данные импортированы
-                    isDataLoaded = true
-                    isLoading = false
+            // Берем данные задачи один раз
+            val data = viewModel.getTaskById(taskId!!).filterNotNull().first()
+            
+            // Определяем контекст команды
+            val effectiveTeamId = teamId ?: data.task.teamId
+            if (effectiveTeamId != null) {
+                viewModel.changeTeamContext(effectiveTeamId)
+                // Если мы не владелец, ждем подгрузки роли для проверки прав
+                if (!viewModel.isOwner(data.task)) {
+                    viewModel.currentUserRole.filterNotNull().first()
                 }
             }
+
+            // ПРОВЕРКА ПРАВ: Дожидаемся роли, если мы не создатель
+            val canEdit = if (viewModel.isOwner(data.task)) {
+                true
+            } else {
+                val currentRole = viewModel.currentUserRole.filterNotNull().first()
+                currentRole == "admin" || currentRole == "junior_admin"
+            }
+
+            if (!canEdit) {
+                onBack() 
+                return@LaunchedEffect
+            }
+
+            // Заполняем стейты
+            taskTitle = data.task.title
+            selectedDateMillis = data.task.deadline
+            selectedAssigneeId = data.task.assigneeId
+            subTasks.clear()
+            subTasks.addAll(data.subTasks.map { it.title })
+            datePickerState.selectedDateMillis = data.task.deadline
+
+            isDataLoaded = true
+            isLoading = false
+        } else if (!isEditing) {
+            // Если создание новой — просто ставим контекст команды
+            teamId?.let { viewModel.changeTeamContext(it) }
         }
     }
 

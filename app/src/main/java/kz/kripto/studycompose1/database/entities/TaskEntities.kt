@@ -7,9 +7,13 @@ import androidx.room.PrimaryKey
 import androidx.room.Embedded
 import androidx.room.Relation
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [Index(value = ["remoteId"], unique = true)]
+)
 data class TaskEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0, // Long - от минус 9 до 9 квинтиллионов
+    // Квинтиллион = тысяча триллион или число с 18 нулями либо в два раза больше миллиарда.
     val remoteId: String? = null, // ID из Firestore для синхронизации
     val title: String,
     val isCompleted: Boolean = false,
@@ -20,7 +24,8 @@ data class TaskEntity(
     val creatorId: Long,     // Локальный ID пользователя
     val creatorUid: String? = null, // ГЛОБАЛЬНЫЙ ID основателя (Firebase UID)
     val teamId: Long? = null, // null -> приватная задача, Long-номер -> задача команды
-    val assigneeId: Long? = null // ID пользователя, назначенного на задачу
+    val assigneeId: Long? = null, // Локальный ID исполнителя
+    val assigneeUid: String? = null // ГЛОБАЛЬНЫЙ ID исполнителя (Firebase UID)
 )
 
 @Entity(

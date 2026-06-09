@@ -16,6 +16,7 @@ import kz.kripto.studycompose1.components.KineticReturnFAB
 import kz.kripto.studycompose1.components.MainNavbar
 import kz.kripto.studycompose1.components.TaskCard
 import kz.kripto.studycompose1.components.TeamCard
+import kz.kripto.studycompose1.database.dao.MemberWithRole
 import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.database.entities.TaskEntity
 import kz.kripto.studycompose1.database.entities.TeamEntity
@@ -41,6 +42,7 @@ fun TeamDetailsScreen(
     val team by teamViewModel.getTeamById(teamId).collectAsState(initial = null)
     val tasks by taskViewModel.teamTasksState.collectAsState()
     val members by teamViewModel.getTeamMembers(teamId).collectAsState(initial = emptyList())
+    val userRole by taskViewModel.currentUserRole.collectAsState()
     val isAuthorized = sessionManager.getUserId() != -1L
 
     var showMembersSheet by remember { mutableStateOf(false) }
@@ -61,7 +63,8 @@ fun TeamDetailsScreen(
         team = team,
         tasks = tasks,
         isOwner = { t -> teamViewModel.isOwner(t) },
-        isTaskOwner = { t -> taskViewModel.isOwner(t) },
+        canManageTasks = { t -> taskViewModel.canManageTask(t) },
+        canAddTask = userRole == "admin" || userRole == "junior_admin",
         onBackClick = onBackClick,
         onLogout = onNavigateToAuth,
         onAddTask = { onAddTask(teamId) },
@@ -77,8 +80,9 @@ fun TeamDetailsScreen(
         MembersBottomSheet(
             members = members,
             isOwner = team?.let { teamViewModel.isOwner(it) } ?: false,
-            currentUsername = sessionManager.getUsername() ?: "",
+            currentUserId = sessionManager.getUserId(),
             onRemoveMember = { username -> teamViewModel.removeMemberByUsername(teamId, username) },
+            onChangeRole = { uid, role -> teamViewModel.changeMemberRole(teamId, uid, role) },
             onDismiss = { showMembersSheet = false }
         )
     }
@@ -87,10 +91,11 @@ fun TeamDetailsScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MembersBottomSheet(
-    members: List<String>,
+    members: List<MemberWithRole>,
     isOwner: Boolean,
-    currentUsername: String,
+    currentUserId: Long,
     onRemoveMember: (String) -> Unit,
+    onChangeRole: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -123,7 +128,8 @@ fun MembersBottomSheet(
                 ) {
                     items(members) { member ->
                         var showMemberMenu by remember { mutableStateOf(false) }
-                        val isMe = member == currentUsername
+                        val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                        val isMe = member.firebaseUid == myUid
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -142,12 +148,23 @@ fun MembersBottomSheet(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = if (isMe) "$member (Вы)" else member,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isMe) "${member.username} (Вы)" else member.username,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                val roleText = when(member.role) {
+                                    "admin" -> "Администратор"
+                                    "junior_admin" -> "Мл. администратор"
+                                    else -> "Участник"
+                                }
+                                Text(
+                                    text = roleText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
                             if (isOwner && !isMe) {
                                 Box {
@@ -163,6 +180,24 @@ fun MembersBottomSheet(
                                         expanded = showMemberMenu,
                                         onDismissRequest = { showMemberMenu = false }
                                     ) {
+                                        if (member.role == "junior_admin") {
+                                            DropdownMenuItem(
+                                                text = { Text("Снять роль мл. админа") },
+                                                onClick = {
+                                                    onChangeRole(member.firebaseUid, "member")
+                                                    showMemberMenu = false
+                                                }
+                                            )
+                                        } else if (member.role == "member") {
+                                            DropdownMenuItem(
+                                                text = { Text("Сделать мл. админом") },
+                                                onClick = {
+                                                    onChangeRole(member.firebaseUid, "junior_admin")
+                                                    showMemberMenu = false
+                                                }
+                                            )
+                                        }
+                                        
                                         DropdownMenuItem(
                                             text = { 
                                                 Text(
@@ -172,7 +207,7 @@ fun MembersBottomSheet(
                                                 ) 
                                             },
                                             onClick = {
-                                                onRemoveMember(member)
+                                                onRemoveMember(member.username)
                                                 showMemberMenu = false
                                             }
                                         )
@@ -193,7 +228,8 @@ fun TeamDetailsContent(
     team: TeamEntity?,
     tasks: List<TaskWithProgress>,
     isOwner: (TeamEntity) -> Boolean,
-    isTaskOwner: (TaskEntity) -> Boolean,
+    canManageTasks: (TaskEntity) -> Boolean,
+    canAddTask: Boolean,
     onBackClick: () -> Unit,
     onLogout: () -> Unit,
     onAddTask: () -> Unit,
@@ -221,10 +257,8 @@ fun TeamDetailsContent(
             }
         },
         floatingActionButton = {
-            team?.let {
-                if (isOwner(it)) {
-                    KineticAddFAB(onClick = onAddTask)
-                }
+            if (canAddTask) {
+                KineticAddFAB(onClick = onAddTask)
             }
         }
     ) { paddingValues ->
@@ -282,8 +316,7 @@ fun TeamDetailsContent(
                             onTaskClick = { onTaskClick(taskWithProgress.data.task.id) },
                             onEditClick = { onEditTask(taskWithProgress.data.task.id) },
                             onDeleteClick = { onDeleteTask(taskWithProgress) },
-                            // Теперь проверяем через глобальный UID основателя
-                            isOwner = isTaskOwner(taskWithProgress.data.task) || (team?.let { isOwner(it) } ?: false)
+                            isOwner = canManageTasks(taskWithProgress.data.task)
                         )
                     }
                 }
@@ -329,7 +362,8 @@ fun TeamDetailPreview() {
                 team = TeamEntity(id = 1, teamName = "Моя Команда", creatorId = 1, inviteCode = "ABC-123"),
                 tasks = emptyList(),
                 isOwner = { true },
-                isTaskOwner = { true },
+                canManageTasks = { true },
+                canAddTask = true,
                 onBackClick = {},
                 onLogout = {},
                 onAddTask = {},

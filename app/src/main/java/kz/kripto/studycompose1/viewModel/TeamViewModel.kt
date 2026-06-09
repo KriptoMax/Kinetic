@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kz.kripto.studycompose1.database.data.SessionManager
 import kz.kripto.studycompose1.database.dao.TeamDao
@@ -46,18 +47,41 @@ class TeamViewModel(
     // Получаю данные о команде по ID
     fun getTeamById(teamId: Long) = teamDao.getTeamById(teamId)
 
-    // Получаю список участников конкретной команды
-    fun getTeamMembers(teamId: Long) = teamDao.getTeamMembers(teamId)
+    // Получаю список участников конкретной команды с ролями
+    fun getTeamMembers(teamId: Long) = teamDao.getTeamMembersWithRoles(teamId)
 
     // Проверяю, состою ли я в этой команде
     fun isUserInTeam(teamId: Long): Flow<Boolean> {
         return teamDao.isUserInTeam(teamId, currentUserId)
     }
 
+    // Проверяю роль пользователя в команде
+    fun getUserRoleInTeam(teamId: Long): Flow<String?> {
+        return teamDao.getTeamMembersWithRoles(teamId).map { members ->
+            val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            members.find { it.firebaseUid == myUid }?.role
+        }
+    }
+
     // Проверяю, я ли создал эту команду (по глобальному ID)
     fun isOwner(team: TeamEntity): Boolean {
         val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-        return team.creatorUid == myUid || team.creatorId == currentUserId
+        return if (team.creatorUid != null) {
+            team.creatorUid == myUid
+        } else {
+            team.creatorId == currentUserId
+        }
+    }
+
+    // Метод для смены роли участника (только для владельца)
+    fun changeMemberRole(teamId: Long, memberUid: String, newRole: String) {
+        viewModelScope.launch {
+            val team = teamDao.getTeamByIdOnce(teamId)
+            if (team != null && isOwner(team)) {
+                teamRepository.updateMemberRole(team.inviteCode, memberUid, newRole)
+                teamDao.updateMemberRole(teamId, memberUid, newRole)
+            }
+        }
     }
 
     // Заполняю форму данными команды для редактирования
@@ -140,7 +164,7 @@ class TeamViewModel(
     // Просто вступаю в публичную команду (без кода)
     fun joinPublicTeam(teamId: Long, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            teamDao.joinTeamById(teamId, currentUserId)
+            teamRepository.joinPublicTeam(teamId, currentUserId)
             onSuccess()
         }
     }

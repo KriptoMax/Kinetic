@@ -12,6 +12,12 @@ import kz.kripto.studycompose1.database.entities.TeamEntity
 import kz.kripto.studycompose1.database.entities.TeamMemberEntity
 import kz.kripto.studycompose1.database.entities.UserEntity
 
+data class MemberWithRole(
+    val username: String,
+    val firebaseUid: String,
+    val role: String
+)
+
 @Dao
 interface TeamDao {
 
@@ -71,6 +77,14 @@ interface TeamDao {
     fun getTeamMembersEntities(teamId: Long): Flow<List<UserEntity>>
 
     @Query("""
+        SELECT users.username, users.firebaseUid, team_members.role FROM users 
+        INNER JOIN team_members ON users.id = team_members.userId 
+        WHERE team_members.teamId = :teamId
+        GROUP BY users.firebaseUid
+    """)
+    fun getTeamMembersWithRoles(teamId: Long): Flow<List<MemberWithRole>>
+
+    @Query("""
         SELECT users.username FROM users 
         INNER JOIN team_members ON users.id = team_members.userId 
         WHERE team_members.teamId = :teamId
@@ -85,6 +99,9 @@ interface TeamDao {
 
     @Query("SELECT * FROM teams WHERE id = :teamId LIMIT 1")
     suspend fun getTeamByIdOnce(teamId: Long): TeamEntity?
+
+    @Query("UPDATE team_members SET role = :newRole WHERE teamId = :teamId AND userId = (SELECT id FROM users WHERE firebaseUid = :firebaseUid LIMIT 1)")
+    suspend fun updateMemberRole(teamId: Long, firebaseUid: String, newRole: String)
 
     @Query("""
         SELECT DISTINCT teams.* FROM teams 

@@ -78,4 +78,11 @@ interface TaskDao {
         deleteSubTasksByTaskId(task.id)
         insertSubTasks(subTasks)
     }
+
+    @Transaction
+    suspend fun syncTaskAndSubTasks(task: TaskEntity, subTasks: List<SubTaskEntity>) {
+        val parentId = insertTask(task)
+        deleteSubTasksByTaskId(parentId)
+        insertSubTasks(subTasks.map { it.copy(parentTaskId = parentId) })
+    }
 }

@@ -6,14 +6,6 @@
         <entry key="Firebase Crashlytics">
           <value>
             <InsightsFilterSettings>
-              <option name="connection">
-                <ConnectionSetting>
-                  <option name="appId" value="kz.kripto.studycompose1" />
-                  <option name="mobileSdkAppId" value="1:386283962216:android:fb2ce734f7c1d564b8a0dd" />
-                  <option name="projectId" value="kinetic-f15af" />
-                  <option name="projectNumber" value="386283962216" />
-                </ConnectionSetting>
-              </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
               <option name="timeIntervalDays" value="THIRTY_DAYS" />
               <option name="visibilityType" value="ALL" />

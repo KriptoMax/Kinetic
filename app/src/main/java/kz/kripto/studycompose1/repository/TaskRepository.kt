@@ -19,14 +19,15 @@ import java.util.Collections
 class TaskRepository(
     private val taskDao: TaskDao,
     private val teamDao: TeamDao,
+    private val userRepository: UserRepository,
     private val firestore: FirebaseFirestore,
-    private val auth: FirebaseAuth
+    private val auth: FirebaseAuth,
 ) {
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeListeners = mutableListOf<ListenerRegistration>()
     
     // Храню список ID задач, которые сейчас обновляются, чтобы не ловить "эхо" от облака
-    val updatingRemoteIds = Collections.synchronizedSet(mutableSetOf<String>())
+    val updatingRemoteIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf<String>())
 
     init {
         // Слежу за входом/выходом из аккаунта
@@ -95,17 +96,22 @@ class TaskRepository(
         val teamInviteCode = data["teamInviteCode"] as? String
         val localTeamId = teamInviteCode?.let { teamDao.getTeamByCode(it)?.id }
 
+        // Пытаемся найти или скачать профиль исполнителя
+        val assigneeUid = data["assigneeUid"] as? String
+        val localAssigneeId = assigneeUid?.let { userRepository.fetchAndSaveUserProfile(it) }
+
         val task = TaskEntity(
             id = existingTask?.id ?: 0,
             remoteId = remoteId,
-            title = data["title"] as? String ?: "",
+            title = (data["title"] as? String) ?: "",
             isCompleted = data["isCompleted"] as? Boolean ?: false,
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
             deadline = (data["deadline"] as? Number)?.toLong(),
             creatorId = (data["creatorId"] as? Number)?.toLong() ?: 1L,
             creatorUid = data["creatorUid"] as? String, // Храню глобальный UID создателя
             teamId = localTeamId, 
-            assigneeId = (data["assigneeId"] as? Number)?.toLong()
+            assigneeId = if (localAssigneeId != -1L) localAssigneeId else null,
+            assigneeUid = assigneeUid
         )
         
         val subTasksRaw = data["subTasks"] as? List<*> ?: emptyList<Any>()
@@ -117,16 +123,27 @@ class TaskRepository(
             }
         }
 
-        val parentId = taskDao.insertTask(task)
-        taskDao.deleteSubTasksByTaskId(parentId)
-        taskDao.insertSubTasks(subTaskEntities.map { it.copy(parentTaskId = parentId) })
+        // ИСПОЛЬЗУЕМ ТРАНЗАКЦИЮ: Чтобы задача и подзадачи обновлялись одновременно (без мерцания)
+        taskDao.syncTaskAndSubTasks(task, subTaskEntities)
     }
 
     // Сохраняю задачу: сначала в телефон, потом в Firebase
     suspend fun saveTask(task: TaskEntity, subTaskTitles: List<String>, editingTaskId: Long? = null) {
         val uid = currentUid
         val remoteId = task.remoteId ?: java.util.UUID.randomUUID().toString()
-        val taskToSave = task.copy(remoteId = remoteId, creatorUid = uid)
+        
+        // РАЗРЕШАЕМ ГЛОБАЛЬНЫЙ UID ИСПОЛНИТЕЛЯ
+        val assigneeUid = if (task.assigneeId != null) {
+            userRepository.getUserById(task.assigneeId)?.firebaseUid
+        } else {
+            task.assigneeUid
+        }
+
+        val taskToSave = task.copy(
+            remoteId = remoteId, 
+            creatorUid = uid,
+            assigneeUid = assigneeUid
+        )
 
         if (editingTaskId != null && editingTaskId != 0L) {
             val updatedSubTasks = subTaskTitles.map { SubTaskEntity(parentTaskId = editingTaskId, title = it, isCompleted = false) }
@@ -161,6 +178,7 @@ class TaskRepository(
             "teamId" to task.teamId,
             "teamInviteCode" to teamInviteCode,
             "assigneeId" to task.assigneeId,
+            "assigneeUid" to task.assigneeUid,
             "subTasks" to subTasks.map { mapOf("title" to it.title, "isCompleted" to it.isCompleted) }
         )
 
@@ -176,7 +194,7 @@ class TaskRepository(
     // Удаляю задачу отовсюду
     suspend fun deleteTask(task: TaskEntity) {
         val remoteId = task.remoteId
-        if (remoteId != null) updatingRemoteIds.add(remoteId)
+        remoteId?.let { updatingRemoteIds.add(it) }
         
         taskDao.deleteTask(task)
         val uid = currentUid ?: return
@@ -193,7 +211,7 @@ class TaskRepository(
     // Меняю статус готовности задачи (чекбокс)
     suspend fun toggleTaskStatus(task: TaskEntity) {
         val remoteId = task.remoteId
-        if (remoteId != null) updatingRemoteIds.add(remoteId)
+        remoteId?.let { updatingRemoteIds.add(it) }
 
         val updatedTask = task.copy(isCompleted = !task.isCompleted)
         taskDao.updateTask(updatedTask)

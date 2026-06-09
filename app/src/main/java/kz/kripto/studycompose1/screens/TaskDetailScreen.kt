@@ -23,6 +23,8 @@ import kz.kripto.studycompose1.database.entities.SubTaskEntity
 import kz.kripto.studycompose1.ui.theme.KineticStyle
 import kz.kripto.studycompose1.viewModel.TaskViewModel
 import org.koin.androidx.compose.koinViewModel
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,17 +37,32 @@ fun TaskDetailScreen(
     onDeleteTask: () -> Unit = {},
     viewModel: TaskViewModel = koinViewModel()
 ) {
-    val taskWithSubTasks by viewModel.getTaskById(taskId).collectAsState(initial = null)
-    val currentUserId = viewModel.currentUserId
+    // СТАБИЛИЗИРУЕМ: Используем remember, чтобы Flow не пересоздавался при каждой рекомпозиции
+    val taskFlow = androidx.compose.runtime.remember(taskId) { viewModel.getTaskById(taskId) }
+    val taskWithSubTasks by taskFlow.collectAsState(initial = null)
+    
+    val userRole by viewModel.currentUserRole.collectAsState()
+    
+    val canManage = taskWithSubTasks?.task?.let { 
+        viewModel.canManageTask(it) 
+    } ?: false
 
     val strokeColor = MaterialTheme.colorScheme.onPrimary
     val cardBgColor = MaterialTheme.colorScheme.primary
 
+    // Оптимизируем: меняем контекст только ОДИН РАЗ при загрузке данных задачи
+    androidx.compose.runtime.LaunchedEffect(taskId) {
+        taskFlow.filterNotNull().first { it.task.id == taskId }.let { data ->
+            data.task.teamId?.let { teamId ->
+                viewModel.changeTeamContext(teamId)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TaskDetailNavbar(
-                // Проверяем владельца по глобальному UID
-                isOwner = taskWithSubTasks?.task?.let { viewModel.isOwner(it) } ?: false,
+                isOwner = canManage,
                 onBack = onBack,
                 onEdit = { onEditTask(taskId) },
                 onDelete = {

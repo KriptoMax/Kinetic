@@ -22,25 +22,35 @@ class SubTaskRepository(
         // Сначала ставлю галочку локально в телефоне
         taskDao.updateSubTaskStatus(subTaskId, isCompleted)
         
-        // Говорю основному репозиторию игнорировать ответ от облака по этой задаче
+        // Достаю обновленный список подзадач и статус задачи
+        val updatedData = taskDao.getTaskByIdOnce(taskId) ?: return
+        
+        // ЛОГИКА АВТО-ЗАВЕРШЕНИЯ: Считаем новый статус
+        val allSubTasksDone = updatedData.subTasks.isNotEmpty() && updatedData.subTasks.all { it.isCompleted }
+        val newStatus = if (updatedData.subTasks.isNotEmpty()) allSubTasksDone else updatedData.task.isCompleted
+        
+        // Если статус должен измениться — меняем его локально
+        if (updatedData.task.isCompleted != newStatus) {
+            taskDao.updateTask(updatedData.task.copy(isCompleted = newStatus))
+        }
+
+        // Говорю основному репозиторию игнорировать ответ от облака
         taskRepository.updatingRemoteIds.add(remoteId)
 
-        // Достаю обновленный список подзадач для отправки в Firebase
-        val updatedData = taskDao.getTaskByIdOnce(taskId) ?: return
         val subTasksMapList = updatedData.subTasks.map {
-            mapOf(
-                "title" to it.title,
-                "isCompleted" to it.isCompleted
-            )
+            mapOf("title" to it.title, "isCompleted" to it.isCompleted)
         }
 
         try {
-            // Отправляю обновленный массив подзадач в нужную коллекцию (личную или командную)
-            val collection = if (taskWithSubTasks.task.teamId != null) firestore.collection("teams_tasks") 
+            val collection = if (updatedData.task.teamId != null) firestore.collection("teams_tasks") 
                              else firestore.collection("users").document(uid).collection("tasks")
             
+            // ОБЪЕДИНЕННЫЙ ЗАПРОС: Обновляем и подзадачи, и статус одним махом
             collection.document(remoteId)
-                .update("subTasks", subTasksMapList)
+                .update(
+                    "subTasks", subTasksMapList,
+                    "isCompleted", newStatus
+                )
                 .await()
         } catch (e: Exception) {
             e.printStackTrace()

@@ -4,9 +4,10 @@ import androidx.room.Entity
 
 @Entity(
     tableName = "team_members",
-    primaryKeys = ["userId", "teamId"] // Составной ключ, чтобы один юзер не вступал в одну команду дважды
+    primaryKeys = ["userId", "teamId"]
 )
 data class TeamMemberEntity(
     val userId: Long,
-    val teamId: Long
+    val teamId: Long,
+    val role: String = "member" // "admin", "junior_admin", "member"
 )
